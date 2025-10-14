@@ -1,0 +1,29 @@
+# Node modules (will be installed in container)
+node_modules/
+
+# User data (will be mounted as volumes)
+user_books/
+users.json
+
+# Git files
+.git/
+.gitignore
+
+# Documentation
+README.md
+CLAUDE.md
+
+# Development files
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

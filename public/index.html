@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BookReader</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head>
+<body>
+  <div id="app">
+    <!-- Library View -->
+    <div id="library-view">
+      <header>
+        <div class="header-controls">
+          <button id="settings-btn" class="icon-btn" title="Settings">⚙️</button>
+          <button id="browse-btn" class="icon-btn" title="Browse Libraries">📚</button>
+          <button id="upload-btn" class="icon-btn" title="Upload Books">📤</button>
+          <button id="logout-btn" class="icon-btn" title="Logout">🚪</button>
+        </div>
+        <h1>BookReader</h1>
+        <p class="subtitle">Your Personal E-Book & Manga Library</p>
+      </header>
+
+      <div id="books-container" class="books-grid">
+        <div class="loading">Loading your library...</div>
+      </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal" style="display: none;">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>Settings</h2>
+          <button id="close-settings" class="close-btn">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="setting-group">
+            <label>Theme</label>
+            <div class="theme-buttons">
+              <button id="light-mode-btn" class="theme-btn">☀️ Light</button>
+              <button id="dark-mode-btn" class="theme-btn">🌙 Dark</button>
+            </div>
+          </div>
+          <div class="setting-group">
+            <label for="bg-color-picker">Background Color</label>
+            <input type="color" id="bg-color-picker" value="#667eea">
+            <button id="reset-color-btn" class="btn-small">Reset</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Upload Modal -->
+    <div id="upload-modal" class="modal" style="display: none;">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>Upload Books</h2>
+          <button id="close-upload" class="close-btn">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="upload-area" id="upload-area">
+            <p>📚 Drag & drop books here or click to browse</p>
+            <p class="upload-hint">Supports: PDF, EPUB, CBZ, CBR, MOBI</p>
+            <input type="file" id="file-input" multiple accept=".pdf,.epub,.cbz,.cbr,.mobi" style="display: none;">
+          </div>
+          <div id="upload-progress" style="display: none;">
+            <div class="progress-bar">
+              <div id="upload-progress-fill" class="progress-fill" style="width: 0%"></div>
+            </div>
+            <p id="upload-status">Uploading...</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Browse Libraries Modal -->
+    <div id="browse-modal" class="modal" style="display: none;">
+      <div class="modal-content modal-large">
+        <div class="modal-header">
+          <h2 id="browse-title">Browse User Libraries</h2>
+          <button id="close-browse" class="close-btn">×</button>
+        </div>
+        <div class="modal-body">
+          <div id="users-list" class="users-list"></div>
+          <div id="shared-books" class="books-grid" style="display: none;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Book Options Modal -->
+    <div id="book-options-modal" class="modal" style="display: none;">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 id="book-options-title">Book Options</h2>
+          <button id="close-book-options" class="close-btn">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="setting-group">
+            <label for="book-name-input">Book Name</label>
+            <input type="text" id="book-name-input" class="text-input" placeholder="Enter new name...">
+            <button id="rename-book-btn" class="btn" style="margin-top: 0.5rem; width: 100%;">Rename Book</button>
+          </div>
+          <div class="setting-group">
+            <label for="cover-page-input">Cover Page</label>
+            <p class="upload-hint">Choose which page to use as the book cover (default: page 1)</p>
+            <div style="display: flex; gap: 0.5rem; align-items: center; margin-top: 0.5rem;">
+              <input type="number" id="cover-page-input" class="text-input" placeholder="Page number..." min="1" style="flex: 1;">
+              <button id="set-cover-btn" class="btn" style="white-space: nowrap;">Set Cover Page</button>
+            </div>
+            <button id="reset-cover-btn" class="btn-small" style="margin-top: 0.5rem; width: 100%;">Reset to Page 1</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Reader View -->
+    <div id="reader-view" style="display: none;">
+      <div class="reader-header">
+        <button id="back-btn" class="btn">← Back to Library</button>
+        <h2 id="book-title"></h2>
+        <span id="page-info"></span>
+      </div>
+
+      <div class="reader-container">
+        <button id="prev-page" class="nav-btn nav-btn-prev">‹</button>
+        <div id="page-content">
+          <canvas id="pdf-canvas"></canvas>
+        </div>
+        <button id="next-page" class="nav-btn nav-btn-next">›</button>
+      </div>
+
+      <div class="reader-controls">
+        <button id="first-page" class="btn">First</button>
+        <input type="range" id="page-slider" min="1" value="1">
+        <button id="last-page" class="btn">Last</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

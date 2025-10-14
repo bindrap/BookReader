@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Legacy Books folder
+Books/*
+!Books/.gitkeep
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+
+# User data (persisted via Docker volumes)
+users.json
+user_books/
+
+# Environment variables
+.env

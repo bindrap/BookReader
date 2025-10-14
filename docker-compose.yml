@@ -1,0 +1,21 @@
+services:
+  bookreader:
+    build: .
+    container_name: bookreader
+    ports:
+      - "8669:8669"
+    volumes:
+      # Persist user data (books, users database, cover settings)
+      - ./user_books:/app/user_books
+      - ./users.json:/app/users.json
+    environment:
+      # Change this to a secure random string in production
+      - JWT_SECRET=${JWT_SECRET:-your-secret-key-change-in-production}
+      - NODE_ENV=production
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8669"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
