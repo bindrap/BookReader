@@ -149,12 +149,20 @@ The easiest way to run BookReader on any computer:
 
 ### First Time Setup
 
-1. **Create an Account**
+1. **Important: Initial Docker Setup**
+   - **If using Docker**: Before starting for the first time, create an empty `users.json` file:
+     ```bash
+     echo '{"users":[]}' > users.json
+     ```
+   - This prevents Docker from creating `users.json` as a directory, which would cause registration to fail
+   - Then start normally with `docker compose up -d`
+
+2. **Create an Account**
    - Click "Register here" on the login page
    - Enter a username (min 3 characters) and password (min 6 characters)
    - You'll be automatically logged in after registration
 
-2. **Add Your Books**
+3. **Add Your Books**
    - Use the upload button (📤) in the app to upload books
    - Or manually place books in `user_books/[your-user-id]/`
    - Each user's books are completely isolated

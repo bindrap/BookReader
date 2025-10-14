@@ -5,7 +5,11 @@
       "Bash(npm install)",
       "Bash(curl -X POST http://localhost:8669/api/auth/login -H \"Content-Type: application/json\" -d '{\"\"\"\"username\"\"\"\":\"\"\"\"test\"\"\"\",\"\"\"\"password\"\"\"\":\"\"\"\"test123\"\"\"\"}')",
       "Bash(curl:*)",
-      "Bash(chmod:*)"
+      "Bash(chmod:*)",
+      "Bash(cat:*)",
+      "Bash(sudo:*)",
+      "Bash(docker compose:*)",
+      "Bash(touch:*)"
     ],
     "deny": [],
     "ask": []
