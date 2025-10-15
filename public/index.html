@@ -2,10 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#667eea">
   <title>BookReader</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" href="/icon-192.png">
   <link rel="stylesheet" href="styles.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js"></script>
 </head>
 <body>
   <div id="app">
@@ -119,13 +126,17 @@
       <div class="reader-header">
         <button id="back-btn" class="btn">← Back to Library</button>
         <h2 id="book-title"></h2>
-        <span id="page-info"></span>
+        <div class="reader-header-controls">
+          <button id="fullscreen-btn" class="icon-btn" title="Toggle Fullscreen">⛶</button>
+          <span id="page-info"></span>
+        </div>
       </div>
 
       <div class="reader-container">
         <button id="prev-page" class="nav-btn nav-btn-prev">‹</button>
         <div id="page-content">
           <canvas id="pdf-canvas"></canvas>
+          <div id="epub-viewer"></div>
         </div>
         <button id="next-page" class="nav-btn nav-btn-next">›</button>
       </div>

@@ -1,0 +1,34 @@
+{
+  "name": "BookReader - E-Book & Manga Library",
+  "short_name": "BookReader",
+  "description": "Your personal e-book and manga reading application",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#667eea",
+  "theme_color": "#667eea",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["books", "entertainment", "productivity"],
+  "shortcuts": [
+    {
+      "name": "Open Library",
+      "short_name": "Library",
+      "description": "Browse your book library",
+      "url": "/",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

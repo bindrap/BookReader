@@ -9,7 +9,9 @@
       "Bash(cat:*)",
       "Bash(sudo:*)",
       "Bash(docker compose:*)",
-      "Bash(touch:*)"
+      "Bash(touch:*)",
+      "Bash(convert:*)",
+      "Read(//home/parteek/.ssh/**)"
     ],
     "deny": [],
     "ask": []

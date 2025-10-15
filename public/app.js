@@ -24,11 +24,26 @@ function logout() {
   window.location.href = '/auth.html';
 }
 
+// Register Service Worker for PWA
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/service-worker.js')
+      .then(registration => {
+        console.log('Service Worker registered successfully:', registration.scope);
+      })
+      .catch(error => {
+        console.log('Service Worker registration failed:', error);
+      });
+  });
+}
+
 // State Management
 let currentBook = null;
 let currentPages = [];
 let currentPageIndex = 0;
 let pdfDoc = null;
+let epubBook = null;
+let epubRendition = null;
 let currentBookForOptions = null;
 
 // Configure PDF.js worker
@@ -242,6 +257,45 @@ async function openBook(book) {
       for (let i = 1; i <= pdfDoc.numPages; i++) {
         currentPages.push({ pageNumber: i });
       }
+      epubBook = null;
+      epubRendition = null;
+    } else if (book.type === 'epub') {
+      // Load EPUB file
+      const token = localStorage.getItem('token');
+      const epubUrl = `/api/books/${book.id}/file`;
+
+      // Initialize EPUB.js
+      epubBook = ePub(epubUrl, {
+        requestHeaders: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      await epubBook.ready;
+
+      const epubViewer = document.getElementById('epub-viewer');
+      epubRendition = epubBook.renderTo(epubViewer, {
+        width: '100%',
+        height: '100%',
+        spread: 'none'
+      });
+
+      await epubRendition.display();
+
+      // Get navigation for page count approximation
+      const navigation = await epubBook.loaded.navigation;
+      currentPages = navigation.toc.map((item, index) => ({
+        pageNumber: index + 1,
+        href: item.href,
+        label: item.label
+      }));
+
+      // If TOC is empty, create synthetic pages
+      if (currentPages.length === 0) {
+        currentPages = [{ pageNumber: 1, href: null }];
+      }
+
+      pdfDoc = null;
     } else {
       // Get pages for the book (manga/images)
       const response = await fetch(`/api/books/${book.id}/pages`, {
@@ -261,7 +315,9 @@ async function openBook(book) {
       }
 
       currentPages = data.pages;
-      pdfDoc = null; // Reset PDF document
+      pdfDoc = null;
+      epubBook = null;
+      epubRendition = null;
     }
 
     // Load last read page or start from page 1
@@ -295,15 +351,37 @@ async function displayPage(pageIndex) {
 
   // Update page content
   const pageContent = document.getElementById('page-content');
+  const pdfCanvas = document.getElementById('pdf-canvas');
+  const epubViewer = document.getElementById('epub-viewer');
+
+  // Hide all viewers first
+  pdfCanvas.style.display = 'none';
+  epubViewer.style.display = 'none';
+
+  // Remove any img elements
+  const existingImg = pageContent.querySelector('img');
+  if (existingImg) existingImg.remove();
 
   if (currentBook.type === 'pdf') {
     // Render PDF page
+    pdfCanvas.style.display = 'block';
     await renderPDFPage(page.pageNumber);
+  } else if (currentBook.type === 'epub') {
+    // Display EPUB page
+    epubViewer.style.display = 'block';
+    if (epubRendition && page.href) {
+      await epubRendition.display(page.href);
+    }
   } else if (currentBook.isDirectory) {
     // Display image for manga
-    pageContent.innerHTML = `<img src="/api/images/${page.path}" alt="Page ${page.pageNumber}">`;
+    const img = document.createElement('img');
+    img.src = `/api/images/${page.path}`;
+    img.alt = `Page ${page.pageNumber}`;
+    pageContent.appendChild(img);
   } else {
-    pageContent.innerHTML = `<p>Page ${page.pageNumber}</p>`;
+    const p = document.createElement('p');
+    p.textContent = `Page ${page.pageNumber}`;
+    pageContent.appendChild(p);
   }
 
   // Update UI
@@ -392,6 +470,9 @@ function setupEventListeners() {
     displayPage(parseInt(e.target.value) - 1);
   });
 
+  // Fullscreen button
+  document.getElementById('fullscreen-btn').addEventListener('click', toggleFullscreen);
+
   // Keyboard navigation
   document.addEventListener('keydown', (e) => {
     if (currentBook) {
@@ -403,6 +484,8 @@ function setupEventListeners() {
         displayPage(0);
       } else if (e.key === 'End') {
         displayPage(currentPages.length - 1);
+      } else if (e.key === 'f' || e.key === 'F') {
+        toggleFullscreen();
       }
     }
   });
@@ -528,14 +611,9 @@ function setupModalHandlers() {
   });
 }
 
-// Upload files function
+// Upload files function with chunked upload support
 async function uploadFiles(files) {
   if (files.length === 0) return;
-
-  const formData = new FormData();
-  files.forEach(file => {
-    formData.append('books', file);
-  });
 
   const uploadProgress = document.getElementById('upload-progress');
   const uploadStatus = document.getElementById('upload-status');
@@ -545,40 +623,112 @@ async function uploadFiles(files) {
   // Show progress
   uploadArea.style.display = 'none';
   uploadProgress.style.display = 'block';
-  uploadStatus.textContent = 'Uploading...';
-  progressFill.style.width = '50%';
 
   try {
     const token = localStorage.getItem('token');
-    const response = await fetch('/api/upload', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`
-      },
-      body: formData
-    });
+    let successCount = 0;
+    let failCount = 0;
 
-    if (response.status === 401 || response.status === 403) {
-      logout();
-      return;
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const fileSize = file.size;
+      const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
+
+      uploadStatus.textContent = `Uploading ${i + 1}/${files.length}: ${file.name}`;
+
+      // If file is small (< 10MB), upload directly
+      if (fileSize < 10 * 1024 * 1024) {
+        const formData = new FormData();
+        formData.append('books', file);
+
+        try {
+          const response = await fetch('/api/upload', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`
+            },
+            body: formData
+          });
+
+          if (response.status === 401 || response.status === 403) {
+            logout();
+            return;
+          }
+
+          if (response.ok) {
+            successCount++;
+          } else {
+            failCount++;
+          }
+        } catch (error) {
+          console.error('Upload error:', error);
+          failCount++;
+        }
+      } else {
+        // Large file - use chunked upload
+        const totalChunks = Math.ceil(fileSize / CHUNK_SIZE);
+        let uploadedChunks = 0;
+
+        try {
+          for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+            const start = chunkIndex * CHUNK_SIZE;
+            const end = Math.min(start + CHUNK_SIZE, fileSize);
+            const chunk = file.slice(start, end);
+
+            const formData = new FormData();
+            formData.append('chunk', chunk);
+            formData.append('filename', file.name);
+            formData.append('chunkIndex', chunkIndex);
+            formData.append('totalChunks', totalChunks);
+
+            const response = await fetch('/api/upload-chunk', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`
+              },
+              body: formData
+            });
+
+            if (response.status === 401 || response.status === 403) {
+              logout();
+              return;
+            }
+
+            if (response.ok) {
+              uploadedChunks++;
+              const fileProgress = (uploadedChunks / totalChunks) * 100;
+              const totalProgress = ((i + fileProgress / 100) / files.length) * 100;
+              progressFill.style.width = `${totalProgress}%`;
+            } else {
+              throw new Error('Chunk upload failed');
+            }
+          }
+          successCount++;
+        } catch (error) {
+          console.error('Chunked upload error:', error);
+          failCount++;
+        }
+      }
+
+      // Update overall progress
+      const overallProgress = ((i + 1) / files.length) * 100;
+      progressFill.style.width = `${overallProgress}%`;
     }
 
-    const result = await response.json();
-
-    if (response.ok) {
+    // Show final status
+    if (failCount === 0) {
       progressFill.style.width = '100%';
-      uploadStatus.textContent = `Successfully uploaded ${files.length} file(s)!`;
-
-      // Refresh library after short delay
-      setTimeout(async () => {
-        await loadLibrary();
-        document.getElementById('upload-modal').style.display = 'none';
-        resetUploadUI();
-      }, 1500);
+      uploadStatus.textContent = `Successfully uploaded ${successCount} file(s)!`;
     } else {
-      uploadStatus.textContent = `Error: ${result.error}`;
-      setTimeout(resetUploadUI, 2000);
+      uploadStatus.textContent = `Uploaded ${successCount} file(s), ${failCount} failed`;
     }
+
+    // Refresh library after short delay
+    setTimeout(async () => {
+      await loadLibrary();
+      document.getElementById('upload-modal').style.display = 'none';
+      resetUploadUI();
+    }, 1500);
   } catch (error) {
     console.error('Upload error:', error);
     uploadStatus.textContent = 'Upload failed. Please try again.';
@@ -1004,6 +1154,35 @@ function setupBrowseModal() {
       browseModal.style.display = 'none';
     }
   });
+}
+
+// Fullscreen toggle function
+function toggleFullscreen() {
+  const readerView = document.getElementById('reader-view');
+
+  if (!document.fullscreenElement && !document.webkitFullscreenElement && !document.mozFullScreenElement) {
+    // Enter fullscreen
+    if (readerView.requestFullscreen) {
+      readerView.requestFullscreen();
+    } else if (readerView.webkitRequestFullscreen) {
+      readerView.webkitRequestFullscreen();
+    } else if (readerView.mozRequestFullScreen) {
+      readerView.mozRequestFullScreen();
+    } else if (readerView.msRequestFullscreen) {
+      readerView.msRequestFullscreen();
+    }
+  } else {
+    // Exit fullscreen
+    if (document.exitFullscreen) {
+      document.exitFullscreen();
+    } else if (document.webkitExitFullscreen) {
+      document.webkitExitFullscreen();
+    } else if (document.mozCancelFullScreen) {
+      document.mozCancelFullScreen();
+    } else if (document.msExitFullscreen) {
+      document.msExitFullscreen();
+    }
+  }
 }
 
 // Start the app when DOM is ready

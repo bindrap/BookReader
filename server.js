@@ -301,6 +301,67 @@ app.post('/api/upload', authenticateToken, upload.array('books', 10), (req, res)
   }
 });
 
+// Chunked upload for large files
+const chunkStorage = new Map(); // Store chunks temporarily
+
+app.post('/api/upload-chunk', authenticateToken, multer({ storage: multer.memoryStorage() }).single('chunk'), async (req, res) => {
+  try {
+    const { filename, chunkIndex, totalChunks } = req.body;
+    const chunk = req.file.buffer;
+
+    if (!filename || chunkIndex === undefined || totalChunks === undefined) {
+      return res.status(400).json({ error: 'Missing chunk information' });
+    }
+
+    const uploadId = `${req.userId}_${filename}`;
+
+    // Initialize chunk storage for this upload
+    if (!chunkStorage.has(uploadId)) {
+      chunkStorage.set(uploadId, {
+        chunks: new Array(parseInt(totalChunks)),
+        filename: filename,
+        userId: req.userId,
+        receivedChunks: 0
+      });
+    }
+
+    const uploadData = chunkStorage.get(uploadId);
+    uploadData.chunks[parseInt(chunkIndex)] = chunk;
+    uploadData.receivedChunks++;
+
+    // Check if all chunks are received
+    if (uploadData.receivedChunks === parseInt(totalChunks)) {
+      // Combine all chunks
+      const fileBuffer = Buffer.concat(uploadData.chunks);
+
+      // Save to user's directory
+      const userDir = getUserBooksDir(req.userId);
+      await fs.mkdir(userDir, { recursive: true });
+
+      const filePath = path.join(userDir, filename);
+      await fs.writeFile(filePath, fileBuffer);
+
+      // Clean up
+      chunkStorage.delete(uploadId);
+
+      res.json({
+        success: true,
+        message: 'File uploaded successfully',
+        filename: filename
+      });
+    } else {
+      res.json({
+        success: true,
+        message: `Chunk ${parseInt(chunkIndex) + 1}/${totalChunks} received`,
+        chunksReceived: uploadData.receivedChunks
+      });
+    }
+  } catch (error) {
+    console.error('Error uploading chunk:', error);
+    res.status(500).json({ error: 'Failed to upload chunk' });
+  }
+});
+
 // Get all users (for browsing shared libraries)
 app.get('/api/users', authenticateToken, async (req, res) => {
   try {

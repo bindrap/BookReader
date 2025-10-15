@@ -214,10 +214,33 @@ canvas.book-cover {
   font-size: 1.5rem;
 }
 
+.reader-header-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
 #page-info {
   min-width: 100px;
   text-align: right;
   color: #aaa;
+}
+
+#fullscreen-btn {
+  background: rgba(102, 126, 234, 0.8);
+  border: none;
+  font-size: 1.2rem;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: white;
+}
+
+#fullscreen-btn:hover {
+  background: rgba(102, 126, 234, 1);
+  transform: scale(1.05);
 }
 
 .btn {
@@ -270,6 +293,43 @@ canvas.book-cover {
   object-fit: contain;
   box-shadow: 0 4px 8px rgba(0,0,0,0.5);
   display: none;
+}
+
+#epub-viewer {
+  width: 100%;
+  height: 85vh;
+  max-width: 900px;
+  margin: 0 auto;
+  display: none;
+}
+
+/* Fullscreen mode styles */
+#reader-view:fullscreen .reader-header,
+#reader-view:-webkit-full-screen .reader-header,
+#reader-view:-moz-full-screen .reader-header {
+  padding: 0.5rem 1rem;
+}
+
+#reader-view:fullscreen #page-content,
+#reader-view:-webkit-full-screen #page-content,
+#reader-view:-moz-full-screen #page-content {
+  max-height: 100%;
+}
+
+#reader-view:fullscreen #page-content img,
+#reader-view:-webkit-full-screen #page-content img,
+#reader-view:-moz-full-screen #page-content img {
+  max-height: 95vh;
+}
+
+#reader-view:fullscreen #pdf-canvas,
+#reader-view:-webkit-full-screen #pdf-canvas,
+#reader-view:-moz-full-screen #pdf-canvas,
+#reader-view:fullscreen #epub-viewer,
+#reader-view:-webkit-full-screen #epub-viewer,
+#reader-view:-moz-full-screen #epub-viewer {
+  max-height: 95vh;
+  height: 95vh;
 }
 
 .nav-btn {
@@ -695,8 +755,30 @@ body.dark-mode .upload-area-small:hover {
   background: #4a4a5e;
 }
 
+/* PWA - Safe area support for notches */
+body {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+#library-view {
+  padding-top: max(2rem, env(safe-area-inset-top));
+  padding-bottom: max(2rem, env(safe-area-inset-bottom));
+}
+
+.reader-header {
+  padding-top: max(1rem, env(safe-area-inset-top));
+  padding-left: max(2rem, env(safe-area-inset-left));
+  padding-right: max(2rem, env(safe-area-inset-right));
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
+  #library-view {
+    padding: 1rem;
+    padding-top: max(1rem, env(safe-area-inset-top));
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+
   .books-grid {
     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
     gap: 1rem;
@@ -706,16 +788,33 @@ body.dark-mode .upload-area-small:hover {
     font-size: 2rem;
   }
 
+  .subtitle {
+    font-size: 1rem;
+  }
+
   .header-controls {
     position: static;
     justify-content: center;
     margin-bottom: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .icon-btn {
+    width: 45px;
+    height: 45px;
+    font-size: 1.3rem;
+  }
+
+  .user-display {
+    width: 100%;
+    text-align: center;
+    margin-bottom: 0.5rem;
   }
 
   .nav-btn {
-    width: 40px;
-    height: 40px;
-    font-size: 2rem;
+    width: 50px;
+    height: 50px;
+    font-size: 2.5rem;
   }
 
   .nav-btn-prev {
@@ -726,12 +825,84 @@ body.dark-mode .upload-area-small:hover {
     right: 0.5rem;
   }
 
+  .reader-header {
+    flex-wrap: wrap;
+    padding: 0.75rem 1rem;
+    gap: 0.5rem;
+  }
+
   .reader-header h2 {
+    font-size: 1rem;
+    order: 1;
+    width: 100%;
+    text-align: center;
+    margin-bottom: 0.5rem;
+  }
+
+  #back-btn {
+    order: 2;
+    font-size: 0.85rem;
+  }
+
+  .reader-header-controls {
+    order: 3;
+    margin-left: auto;
+  }
+
+  #page-info {
+    font-size: 0.9rem;
+    min-width: 80px;
+  }
+
+  #fullscreen-btn {
+    width: 35px;
+    height: 35px;
     font-size: 1rem;
   }
 
   .btn {
     padding: 0.5rem 1rem;
     font-size: 0.9rem;
+  }
+
+  .reader-controls {
+    padding: 0.75rem 1rem;
+    gap: 0.5rem;
+  }
+
+  .modal-content {
+    width: 95%;
+    max-height: 90vh;
+  }
+
+  .upload-area {
+    padding: 2rem 1rem;
+  }
+
+  .users-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .books-grid {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 0.75rem;
+  }
+
+  header h1 {
+    font-size: 1.75rem;
+  }
+
+  .book-card {
+    padding: 1rem;
+  }
+
+  .book-cover-container {
+    height: 150px;
+  }
+
+  .book-icon {
+    font-size: 3rem;
   }
 }
