@@ -140,9 +140,40 @@ function adjustColor(color, percent) {
     .toString(16).slice(1);
 }
 
+// Prevent mobile viewport scaling and refresh issues
+function lockMobileViewport() {
+  // Prevent pull-to-refresh on mobile
+  document.body.style.overscrollBehavior = 'none';
+  document.documentElement.style.overscrollBehavior = 'none';
+
+  // Prevent zoom on mobile
+  document.addEventListener('gesturestart', (e) => e.preventDefault());
+  document.addEventListener('gesturechange', (e) => e.preventDefault());
+  document.addEventListener('gestureend', (e) => e.preventDefault());
+
+  // Lock viewport for better mobile experience
+  const viewport = document.querySelector('meta[name="viewport"]');
+  if (viewport && /Mobi|Android/i.test(navigator.userAgent)) {
+    viewport.setAttribute('content',
+      'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, minimal-ui');
+  }
+
+  // Hide URL bar on mobile by scrolling
+  if (/Mobi|Android/i.test(navigator.userAgent)) {
+    window.addEventListener('load', () => {
+      setTimeout(() => {
+        window.scrollTo(0, 1);
+      }, 100);
+    });
+  }
+}
+
 // Initialize the app
 async function init() {
   if (!checkAuth()) return;
+
+  // Lock viewport on mobile to prevent refresh issues
+  lockMobileViewport();
 
   // Display username
   const username = localStorage.getItem('username');
@@ -311,6 +342,12 @@ async function openBook(book) {
     document.getElementById('reader-view').style.display = 'flex';
     document.getElementById('book-title').textContent = book.name;
 
+    // Prevent body scroll on mobile when reading
+    document.body.style.overflow = 'hidden';
+    document.body.style.position = 'fixed';
+    document.body.style.width = '100%';
+    document.body.style.height = '100%';
+
     // Setup page slider
     const slider = document.getElementById('page-slider');
     slider.max = currentPages.length;
@@ -343,6 +380,11 @@ async function displayPage(pageIndex) {
   // Remove any img elements
   const existingImg = pageContent.querySelector('img');
   if (existingImg) existingImg.remove();
+
+  // Prevent scroll during page load on mobile
+  if (/Mobi|Android/i.test(navigator.userAgent)) {
+    window.scrollTo(0, 0);
+  }
 
   if (currentBook.type === 'pdf') {
     // Render PDF page
@@ -496,6 +538,13 @@ function setupEventListeners() {
   document.getElementById('back-btn').addEventListener('click', () => {
     document.getElementById('reader-view').style.display = 'none';
     document.getElementById('library-view').style.display = 'block';
+
+    // Restore body scroll
+    document.body.style.overflow = '';
+    document.body.style.position = '';
+    document.body.style.width = '';
+    document.body.style.height = '';
+
     currentBook = null;
     currentPages = [];
     loadLibrary(); // Refresh to show updated progress
