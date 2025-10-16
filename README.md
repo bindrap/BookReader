@@ -18,6 +18,9 @@ A clean, modern web-based e-book and manga reader that lets you read your downlo
 - **Responsive Design** - Works on desktop and mobile devices
 - **PWA Support** - Install as a standalone app on mobile devices with no URL bar (Updated: 2025-10-16)
 - **Mobile Optimized** - No refresh issues when reading manga on mobile, smooth touch gestures (Updated: 2025-10-16)
+- **Page Preloading** - Next pages load in background for instant navigation (Updated: 2025-10-16)
+- **Offline Reading** - Download books and read offline with Service Worker caching (Updated: 2025-10-16)
+- **Download Books** - Download PDF books directly to your device (Updated: 2025-10-16)
 
 ## Technical Specifications
 
@@ -365,6 +368,17 @@ PDF.js is Mozilla's battle-tested PDF renderer that runs entirely in the browser
 
 ## Recent Updates
 
+### 2025-10-16: Performance & Offline Improvements
+- **Full Book Caching**: Automatically caches entire manga in background when you open it
+- **Smart Preloading**: Loads all pages in batches with progress indicator
+- **Page Preloading**: Automatically preloads next 3 and previous 1 pages for instant navigation
+- **Image Caching**: In-memory cache for manga images - cached pages load instantly
+- **Cache Management**: View cache status and manually clear cache per book
+- **Download Functionality**: Download PDF books for offline reading
+- **Enhanced Service Worker**: Aggressive caching strategy for images and books
+- **Offline Support**: Service Worker now properly caches images for offline viewing
+- **Memory Management**: Automatic cache cleanup when exiting books to prevent memory bloat
+
 ### 2025-10-16: Mobile PWA Enhancements
 - Added full Progressive Web App (PWA) support
 - Fixed mobile refresh issues when reading manga/PDFs
@@ -383,13 +397,15 @@ Potential features for future versions:
 - [x] File upload from web interface
 - [x] PWA support for mobile devices (2025-10-16)
 - [x] Mobile optimization and refresh prevention (2025-10-16)
+- [x] Page preloading and caching (2025-10-16)
+- [x] Download functionality for offline reading (2025-10-16)
+- [x] Offline mode with Service Worker caching (2025-10-16)
 - [ ] EPUB text rendering
 - [ ] CBZ/CBR archive extraction
 - [ ] Bookmark system (multiple bookmarks per book)
 - [ ] Reading statistics dashboard
 - [ ] Export/import progress data
 - [ ] Two-page spread view for manga
-- [ ] Zoom and pan controls for PDFs
 - [ ] Full-text search across books
 - [ ] Collections and tags
 - [ ] Cloud sync

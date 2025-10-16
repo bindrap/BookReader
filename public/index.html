@@ -144,6 +144,19 @@
             <button id="reset-cover-btn" class="btn-small" style="margin-top: 0.5rem; width: 100%;">Reset to Page 1</button>
           </div>
           <div class="setting-group">
+            <label>Download for Offline</label>
+            <p class="upload-hint">Download this book to read offline (PDFs only)</p>
+            <button id="download-book-btn" class="btn" style="margin-top: 0.5rem; width: 100%; background: #28a745;">📥 Download Book</button>
+          </div>
+          <div class="setting-group">
+            <label>Cache Status</label>
+            <p class="upload-hint" id="cache-status-text">Check how much of this book is cached in memory</p>
+            <div id="cache-status-bar" style="width: 100%; height: 8px; background: #e0e0e0; border-radius: 4px; margin-top: 0.5rem; overflow: hidden;">
+              <div id="cache-status-fill" style="height: 100%; background: #28a745; width: 0%; transition: width 0.3s;"></div>
+            </div>
+            <button id="clear-cache-btn" class="btn-small" style="margin-top: 0.5rem; width: 100%;">Clear Cache</button>
+          </div>
+          <div class="setting-group">
             <label style="color: #e74c3c;">Danger Zone</label>
             <p class="upload-hint">Permanently delete this book from your library</p>
             <button id="delete-book-btn" class="btn" style="margin-top: 0.5rem; width: 100%; background: #e74c3c;">Delete Book</button>

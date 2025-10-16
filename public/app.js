@@ -49,9 +49,175 @@ let currentCategory = 'all';
 let allBooks = [];
 let pdfZoomLevel = 1.5; // Default zoom level for PDFs
 let pdfPageCache = {}; // Cache for rendered PDF pages
+let imageCache = {}; // Cache for manga images (object URLs)
+let preloadQueue = []; // Queue for preloading adjacent pages
+let isPreloadingBook = false; // Flag to track if full book is being preloaded
+let preloadProgress = 0; // Track preload progress percentage
 
 // Configure PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// Preload manga image with caching
+async function preloadMangaImage(imagePath) {
+  // Check if already cached
+  if (imageCache[imagePath]) {
+    return imageCache[imagePath];
+  }
+
+  try {
+    const token = localStorage.getItem('token');
+    const response = await fetch(`/api/images/${imagePath}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+
+    if (response.ok) {
+      const blob = await response.blob();
+      const objectURL = URL.createObjectURL(blob);
+      imageCache[imagePath] = objectURL;
+      console.log('Preloaded image:', imagePath);
+      return objectURL;
+    }
+  } catch (error) {
+    console.error('Error preloading image:', imagePath, error);
+  }
+  return null;
+}
+
+// Preload adjacent pages for faster navigation
+function preloadAdjacentPages() {
+  if (!currentBook || !currentBook.isDirectory) return;
+
+  // Preload next 3 and previous 1 pages
+  const pagesToPreload = [];
+
+  // Previous page
+  if (currentPageIndex > 0) {
+    pagesToPreload.push(currentPageIndex - 1);
+  }
+
+  // Next 3 pages
+  for (let i = 1; i <= 3; i++) {
+    if (currentPageIndex + i < currentPages.length) {
+      pagesToPreload.push(currentPageIndex + i);
+    }
+  }
+
+  // Preload in background
+  pagesToPreload.forEach(pageIdx => {
+    const page = currentPages[pageIdx];
+    if (page && page.path) {
+      preloadMangaImage(page.path);
+    }
+  });
+}
+
+// Preload entire book in background
+async function preloadEntireBook() {
+  if (!currentBook || !currentBook.isDirectory || isPreloadingBook) return;
+
+  isPreloadingBook = true;
+  preloadProgress = 0;
+  const totalPages = currentPages.length;
+  let loadedPages = 0;
+
+  console.log(`Starting to preload entire book: ${totalPages} pages`);
+  updatePreloadIndicator(0, totalPages);
+
+  // Preload in batches to avoid overwhelming the browser
+  const BATCH_SIZE = 5;
+
+  for (let i = 0; i < totalPages; i += BATCH_SIZE) {
+    const batch = [];
+
+    // Create batch of pages to load
+    for (let j = 0; j < BATCH_SIZE && (i + j) < totalPages; j++) {
+      const page = currentPages[i + j];
+      if (page && page.path && !imageCache[page.path]) {
+        batch.push(preloadMangaImage(page.path));
+      }
+    }
+
+    // Wait for batch to complete
+    await Promise.allSettled(batch);
+
+    loadedPages += batch.length;
+    preloadProgress = Math.round((loadedPages / totalPages) * 100);
+    updatePreloadIndicator(loadedPages, totalPages);
+
+    // Small delay between batches to keep UI responsive
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+
+  isPreloadingBook = false;
+  console.log('Book preloading complete!');
+  updatePreloadIndicator(totalPages, totalPages, true);
+}
+
+// Update preload indicator in UI
+function updatePreloadIndicator(loaded, total, complete = false) {
+  let indicator = document.getElementById('preload-indicator');
+
+  if (!indicator) {
+    // Create indicator if it doesn't exist
+    indicator = document.createElement('div');
+    indicator.id = 'preload-indicator';
+    indicator.style.cssText = `
+      position: fixed;
+      bottom: 80px;
+      right: 20px;
+      background: rgba(102, 126, 234, 0.95);
+      color: white;
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      z-index: 1000;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      transition: opacity 0.3s;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    `;
+    document.body.appendChild(indicator);
+  }
+
+  if (complete) {
+    indicator.innerHTML = '✓ Book cached for offline reading!';
+    indicator.style.background = 'rgba(40, 167, 69, 0.95)';
+    setTimeout(() => {
+      indicator.style.opacity = '0';
+      setTimeout(() => indicator.remove(), 300);
+    }, 3000);
+  } else if (loaded > 0) {
+    const percentage = Math.round((loaded / total) * 100);
+    indicator.innerHTML = `
+      <div style="width: 20px; height: 20px; border: 2px solid white; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+      Caching: ${percentage}% (${loaded}/${total})
+    `;
+    indicator.style.opacity = '1';
+  }
+}
+
+// Add CSS animation for spinner
+const style = document.createElement('style');
+style.textContent = `
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+`;
+document.head.appendChild(style);
+
+// Clear image cache to free memory
+function clearImageCache() {
+  Object.values(imageCache).forEach(url => {
+    try {
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      // Ignore errors
+    }
+  });
+  imageCache = {};
+  console.log('Image cache cleared');
+}
 
 // Local Storage Keys
 const SETTINGS_KEY = 'bookReader_settings';
@@ -355,6 +521,11 @@ async function openBook(book) {
 
     // Display current page
     displayPage(currentPageIndex);
+
+    // Start preloading entire book in background (for manga only)
+    if (book.isDirectory) {
+      setTimeout(() => preloadEntireBook(), 1000); // Start after 1 second to let first page load
+    }
   } catch (error) {
     console.error('Error opening book:', error);
     alert('Failed to open book. Please try again.');
@@ -398,11 +569,61 @@ async function displayPage(pageIndex) {
       await epubRendition.display(page.cfi || page.href);
     }
   } else if (currentBook.isDirectory) {
-    // Display image for manga
+    // Display image for manga with caching
     const img = document.createElement('img');
-    img.src = `/api/images/${page.path}`;
     img.alt = `Page ${page.pageNumber}`;
+    img.style.background = '#1a1a1a';
+
     pageContent.appendChild(img);
+
+    // Check if image is already cached
+    if (imageCache[page.path]) {
+      img.src = imageCache[page.path];
+      img.style.minHeight = 'auto';
+      console.log('Image loaded from cache:', page.path);
+
+      // Preload adjacent pages after displaying current
+      setTimeout(() => preloadAdjacentPages(), 100);
+    } else {
+      // Show loading indicator
+      img.style.minHeight = '300px';
+      img.style.display = 'flex';
+      img.style.alignItems = 'center';
+      img.style.justifyContent = 'center';
+
+      // Fetch and cache image
+      const token = localStorage.getItem('token');
+      const imageSrc = `/api/images/${page.path}`;
+
+      fetch(imageSrc, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          return response.blob();
+        })
+        .then(blob => {
+          const objectURL = URL.createObjectURL(blob);
+          imageCache[page.path] = objectURL; // Cache the image
+          img.src = objectURL;
+          img.style.minHeight = 'auto';
+          console.log('Image loaded and cached:', imageSrc);
+
+          // Preload adjacent pages after displaying current
+          setTimeout(() => preloadAdjacentPages(), 100);
+        })
+        .catch(error => {
+          console.error('Failed to load image:', imageSrc, error);
+          img.alt = `Failed to load page ${page.pageNumber}`;
+          img.style.color = '#fff';
+          img.style.padding = '2rem';
+          img.style.textAlign = 'center';
+        });
+    }
   } else {
     const p = document.createElement('p');
     p.textContent = `Page ${page.pageNumber}`;
@@ -544,6 +765,9 @@ function setupEventListeners() {
     document.body.style.position = '';
     document.body.style.width = '';
     document.body.style.height = '';
+
+    // Clear image cache to free memory
+    clearImageCache();
 
     currentBook = null;
     currentPages = [];
@@ -1136,19 +1360,100 @@ async function loadBookCover(book) {
           const pageNum = Math.min(coverPageNumber, pagesData.pages.length);
           const coverPage = pagesData.pages[pageNum - 1];
 
-          const img = document.createElement('img');
-          img.className = 'book-cover';
-          img.src = `/api/images/${coverPage.path}`;
-          img.alt = book.name;
+          // Fetch cover image with authentication
+          const token = localStorage.getItem('token');
+          const imageSrc = `/api/images/${coverPage.path}`;
 
-          coverContainer.innerHTML = '';
-          coverContainer.appendChild(img);
+          const fetchResponse = await fetch(imageSrc, {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          });
+
+          if (fetchResponse.ok) {
+            const blob = await fetchResponse.blob();
+            const objectURL = URL.createObjectURL(blob);
+
+            const img = document.createElement('img');
+            img.className = 'book-cover';
+            img.src = objectURL;
+            img.alt = book.name;
+
+            coverContainer.innerHTML = '';
+            coverContainer.appendChild(img);
+          }
         }
       }
     }
   } catch (error) {
     console.error('Error loading book cover:', error);
   }
+}
+
+// Get cache status for current book
+function getCacheStatus(book) {
+  if (!book || !book.isDirectory) return { cached: 0, total: 0, percentage: 0 };
+
+  // Get all pages for this book
+  const bookPages = currentBook && currentBook.id === book.id ? currentPages : [];
+  if (bookPages.length === 0) return { cached: 0, total: 0, percentage: 0 };
+
+  const cachedCount = bookPages.filter(page => imageCache[page.path]).length;
+  const totalCount = bookPages.length;
+  const percentage = Math.round((cachedCount / totalCount) * 100);
+
+  return { cached: cachedCount, total: totalCount, percentage };
+}
+
+// Update cache status UI
+function updateCacheStatusUI() {
+  if (!currentBookForOptions) return;
+
+  const status = getCacheStatus(currentBookForOptions);
+  const statusText = document.getElementById('cache-status-text');
+  const statusFill = document.getElementById('cache-status-fill');
+
+  if (status.total === 0) {
+    statusText.textContent = 'Cache status only available for manga';
+    statusFill.style.width = '0%';
+  } else {
+    statusText.textContent = `${status.cached} of ${status.total} pages cached (${status.percentage}%)`;
+    statusFill.style.width = `${status.percentage}%`;
+  }
+}
+
+// Clear cache for specific book
+function clearBookCache() {
+  if (!currentBookForOptions || !currentBookForOptions.isDirectory) {
+    alert('Cache clearing only available for manga');
+    return;
+  }
+
+  const status = getCacheStatus(currentBookForOptions);
+  if (status.cached === 0) {
+    alert('No pages are currently cached for this book');
+    return;
+  }
+
+  const confirmed = confirm(`Clear ${status.cached} cached pages for "${currentBookForOptions.name}"?\n\nYou'll need to re-download them when reading.`);
+  if (!confirmed) return;
+
+  // Clear cache for this book's pages
+  if (currentBook && currentBook.id === currentBookForOptions.id) {
+    currentPages.forEach(page => {
+      if (imageCache[page.path]) {
+        try {
+          URL.revokeObjectURL(imageCache[page.path]);
+        } catch (e) {
+          // Ignore
+        }
+        delete imageCache[page.path];
+      }
+    });
+  }
+
+  updateCacheStatusUI();
+  alert('Cache cleared successfully!');
 }
 
 // Book Options Functions
@@ -1181,6 +1486,9 @@ async function openBookOptions(book) {
   } catch (error) {
     coverPageInput.value = 1;
   }
+
+  // Update cache status
+  updateCacheStatusUI();
 
   modal.style.display = 'flex';
 }
@@ -1325,6 +1633,68 @@ async function changeCategory() {
   }
 }
 
+async function downloadBook() {
+  if (!currentBookForOptions) return;
+
+  // Only allow downloading PDF files
+  if (currentBookForOptions.type !== 'pdf') {
+    alert('Download is currently only supported for PDF files.');
+    return;
+  }
+
+  const bookName = currentBookForOptions.name;
+  const downloadBtn = document.getElementById('download-book-btn');
+  const originalText = downloadBtn.textContent;
+
+  try {
+    downloadBtn.disabled = true;
+    downloadBtn.textContent = '⏳ Downloading...';
+
+    const token = localStorage.getItem('token');
+    const response = await fetch(`/api/books/${currentBookForOptions.id}/file`, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    if (response.status === 401 || response.status === 403) {
+      logout();
+      return;
+    }
+
+    if (!response.ok) {
+      throw new Error('Download failed');
+    }
+
+    // Get the file as a blob
+    const blob = await response.blob();
+
+    // Create a download link
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.style.display = 'none';
+    a.href = url;
+    a.download = bookName;
+    document.body.appendChild(a);
+    a.click();
+
+    // Cleanup
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+
+    downloadBtn.textContent = '✓ Downloaded!';
+    setTimeout(() => {
+      downloadBtn.textContent = originalText;
+      downloadBtn.disabled = false;
+    }, 2000);
+  } catch (error) {
+    console.error('Error downloading book:', error);
+    alert('Failed to download book. Please try again.');
+    downloadBtn.textContent = originalText;
+    downloadBtn.disabled = false;
+  }
+}
+
 async function deleteBook() {
   if (!currentBookForOptions) return;
 
@@ -1373,6 +1743,8 @@ function setupBookOptionsModal() {
   const changeCategoryBtn = document.getElementById('change-category-btn');
   const setCoverBtn = document.getElementById('set-cover-btn');
   const resetCoverBtn = document.getElementById('reset-cover-btn');
+  const downloadBtn = document.getElementById('download-book-btn');
+  const clearCacheBtn = document.getElementById('clear-cache-btn');
   const deleteBtn = document.getElementById('delete-book-btn');
 
   closeBtn.addEventListener('click', () => {
@@ -1391,6 +1763,8 @@ function setupBookOptionsModal() {
   changeCategoryBtn.addEventListener('click', changeCategory);
   setCoverBtn.addEventListener('click', setCoverPage);
   resetCoverBtn.addEventListener('click', resetCoverPage);
+  downloadBtn.addEventListener('click', downloadBook);
+  clearCacheBtn.addEventListener('click', clearBookCache);
   deleteBtn.addEventListener('click', deleteBook);
 }
 

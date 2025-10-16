@@ -1,5 +1,6 @@
-const CACHE_NAME = 'bookreader-v2';
-const BOOK_CACHE_NAME = 'bookreader-books-v2';
+const CACHE_NAME = 'bookreader-v3';
+const BOOK_CACHE_NAME = 'bookreader-books-v3';
+const IMAGE_CACHE_NAME = 'bookreader-images-v3';
 const urlsToCache = [
   '/',
   '/index.html',
@@ -36,7 +37,7 @@ self.addEventListener('activate', event => {
     caches.keys().then(cacheNames => {
       return Promise.all(
         cacheNames.map(cacheName => {
-          if (cacheName !== CACHE_NAME && cacheName !== BOOK_CACHE_NAME) {
+          if (cacheName !== CACHE_NAME && cacheName !== BOOK_CACHE_NAME && cacheName !== IMAGE_CACHE_NAME) {
             console.log('Deleting old cache:', cacheName);
             return caches.delete(cacheName);
           }
@@ -80,8 +81,36 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Handle book covers and images with caching
-  if (url.pathname.includes('/api/images/') || url.pathname.includes('/api/books/') && url.pathname.includes('/cover')) {
+  // Handle manga images with aggressive caching
+  if (url.pathname.includes('/api/images/')) {
+    event.respondWith(
+      caches.open(IMAGE_CACHE_NAME).then(cache => {
+        return cache.match(event.request).then(cachedResponse => {
+          if (cachedResponse) {
+            console.log('Serving image from cache:', url.pathname);
+            return cachedResponse;
+          }
+
+          console.log('Fetching and caching image:', url.pathname);
+          return fetch(event.request).then(response => {
+            if (response && response.status === 200) {
+              // Cache successful responses with a long expiry
+              cache.put(event.request, response.clone());
+            }
+            return response;
+          }).catch(error => {
+            console.log('Failed to fetch image:', url.pathname, error);
+            // Return a placeholder or cached version if network fails
+            return cache.match(event.request);
+          });
+        });
+      })
+    );
+    return;
+  }
+
+  // Handle book covers with caching
+  if (url.pathname.includes('/api/books/') && url.pathname.includes('/cover')) {
     event.respondWith(
       caches.open(BOOK_CACHE_NAME).then(cache => {
         return cache.match(event.request).then(cachedResponse => {
