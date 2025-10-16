@@ -1,4 +1,5 @@
-const CACHE_NAME = 'bookreader-v1';
+const CACHE_NAME = 'bookreader-v2';
+const BOOK_CACHE_NAME = 'bookreader-books-v2';
 const urlsToCache = [
   '/',
   '/index.html',
@@ -8,7 +9,9 @@ const urlsToCache = [
   '/app.js',
   '/auth.js',
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
+  'https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js'
 ];
 
 // Install event - cache resources
@@ -33,7 +36,7 @@ self.addEventListener('activate', event => {
     caches.keys().then(cacheNames => {
       return Promise.all(
         cacheNames.map(cacheName => {
-          if (cacheName !== CACHE_NAME) {
+          if (cacheName !== CACHE_NAME && cacheName !== BOOK_CACHE_NAME) {
             console.log('Deleting old cache:', cacheName);
             return caches.delete(cacheName);
           }
@@ -46,13 +49,64 @@ self.addEventListener('activate', event => {
 
 // Fetch event - serve from cache, fallback to network
 self.addEventListener('fetch', event => {
-  // Skip caching for API requests and book content
-  if (event.request.url.includes('/api/') ||
-      event.request.url.includes('/user_books/') ||
-      event.request.method !== 'GET') {
+  const url = new URL(event.request.url);
+
+  // Only handle GET requests
+  if (event.request.method !== 'GET') {
     return;
   }
 
+  // Handle book files (PDF, EPUB) with aggressive caching
+  if (url.pathname.includes('/api/books/') && url.pathname.includes('/file')) {
+    event.respondWith(
+      caches.open(BOOK_CACHE_NAME).then(cache => {
+        return cache.match(event.request).then(cachedResponse => {
+          if (cachedResponse) {
+            console.log('Serving book from cache:', url.pathname);
+            return cachedResponse;
+          }
+
+          console.log('Fetching and caching book:', url.pathname);
+          return fetch(event.request).then(response => {
+            // Only cache successful responses
+            if (response && response.status === 200) {
+              cache.put(event.request, response.clone());
+            }
+            return response;
+          });
+        });
+      })
+    );
+    return;
+  }
+
+  // Handle book covers and images with caching
+  if (url.pathname.includes('/api/images/') || url.pathname.includes('/api/books/') && url.pathname.includes('/cover')) {
+    event.respondWith(
+      caches.open(BOOK_CACHE_NAME).then(cache => {
+        return cache.match(event.request).then(cachedResponse => {
+          if (cachedResponse) {
+            return cachedResponse;
+          }
+
+          return fetch(event.request).then(response => {
+            if (response && response.status === 200) {
+              cache.put(event.request, response.clone());
+            }
+            return response;
+          });
+        });
+      })
+    );
+    return;
+  }
+
+  // Skip other API requests
+  if (url.pathname.includes('/api/')) {
+    return;
+  }
+
+  // Handle static assets
   event.respondWith(
     caches.match(event.request)
       .then(response => {

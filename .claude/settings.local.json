@@ -11,7 +11,12 @@
       "Bash(docker compose:*)",
       "Bash(touch:*)",
       "Bash(convert:*)",
-      "Read(//home/parteek/.ssh/**)"
+      "Read(//home/parteek/.ssh/**)",
+      "Bash(docker ps:*)",
+      "Bash(docker exec:*)",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiIxNzYwNDgwMzg2MjgxIiwidXNlcm5hbWUiOiJwYXJ0ZWVrIiwiaWF0IjoxNzYwNTgxMDA0LCJleHAiOjE3NjExODU4MDR9.AJnHLwSB_5cXD22U9ehS6dhw5RvHwEVJbU_4af1LSBI\")",
+      "WebSearch",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiIxNzYwNDgwMzg2MjgxIiwidXNlcm5hbWUiOiJwYXJ0ZWVrIiwiaWF0IjoxNzYwNTg2NDkzLCJleHAiOjE3NjExOTEyOTN9.A-YrozX_AWcf_lhTkqfxsrviGmxXyq9dvYf_cHfG3Sc\")"
     ],
     "deny": [],
     "ask": []

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-fullscreen">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#667eea">
   <title>BookReader</title>
@@ -12,7 +12,8 @@
   <link rel="apple-touch-icon" href="/icon-192.png">
   <link rel="stylesheet" href="styles.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="/epub.js"></script>
 </head>
 <body>
   <div id="app">
@@ -28,6 +29,13 @@
         <h1>BookReader</h1>
         <p class="subtitle">Your Personal E-Book & Manga Library</p>
       </header>
+
+      <div class="category-tabs">
+        <button class="category-tab active" data-category="all">All Books</button>
+        <button class="category-tab" data-category="novels">Novels</button>
+        <button class="category-tab" data-category="manga">Manga</button>
+        <button class="category-tab" data-category="textbooks">Textbooks</button>
+      </div>
 
       <div id="books-container" class="books-grid">
         <div class="loading">Loading your library...</div>
@@ -66,9 +74,18 @@
           <button id="close-upload" class="close-btn">×</button>
         </div>
         <div class="modal-body">
+          <div class="setting-group">
+            <label for="category-select">Category</label>
+            <select id="category-select" class="text-input">
+              <option value="novels">Novels</option>
+              <option value="manga">Manga</option>
+              <option value="textbooks">Textbooks</option>
+            </select>
+          </div>
           <div class="upload-area" id="upload-area">
             <p>📚 Drag & drop books here or click to browse</p>
             <p class="upload-hint">Supports: PDF, EPUB, CBZ, CBR, MOBI</p>
+            <p class="upload-hint">Max file size: 500MB per file</p>
             <input type="file" id="file-input" multiple accept=".pdf,.epub,.cbz,.cbr,.mobi" style="display: none;">
           </div>
           <div id="upload-progress" style="display: none;">
@@ -109,6 +126,15 @@
             <button id="rename-book-btn" class="btn" style="margin-top: 0.5rem; width: 100%;">Rename Book</button>
           </div>
           <div class="setting-group">
+            <label for="book-category-select">Category</label>
+            <select id="book-category-select" class="text-input">
+              <option value="novels">Novels</option>
+              <option value="manga">Manga</option>
+              <option value="textbooks">Textbooks</option>
+            </select>
+            <button id="change-category-btn" class="btn" style="margin-top: 0.5rem; width: 100%;">Change Category</button>
+          </div>
+          <div class="setting-group">
             <label for="cover-page-input">Cover Page</label>
             <p class="upload-hint">Choose which page to use as the book cover (default: page 1)</p>
             <div style="display: flex; gap: 0.5rem; align-items: center; margin-top: 0.5rem;">
@@ -116,6 +142,11 @@
               <button id="set-cover-btn" class="btn" style="white-space: nowrap;">Set Cover Page</button>
             </div>
             <button id="reset-cover-btn" class="btn-small" style="margin-top: 0.5rem; width: 100%;">Reset to Page 1</button>
+          </div>
+          <div class="setting-group">
+            <label style="color: #e74c3c;">Danger Zone</label>
+            <p class="upload-hint">Permanently delete this book from your library</p>
+            <button id="delete-book-btn" class="btn" style="margin-top: 0.5rem; width: 100%; background: #e74c3c;">Delete Book</button>
           </div>
         </div>
       </div>
@@ -127,6 +158,9 @@
         <button id="back-btn" class="btn">← Back to Library</button>
         <h2 id="book-title"></h2>
         <div class="reader-header-controls">
+          <button id="zoom-out-btn" class="icon-btn" title="Zoom Out">−</button>
+          <button id="zoom-reset-btn" class="icon-btn" title="Reset Zoom">⊙</button>
+          <button id="zoom-in-btn" class="icon-btn" title="Zoom In">+</button>
           <button id="fullscreen-btn" class="icon-btn" title="Toggle Fullscreen">⛶</button>
           <span id="page-info"></span>
         </div>

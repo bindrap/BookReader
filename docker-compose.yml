@@ -8,6 +8,8 @@ services:
       # Persist user data (books, users database, cover settings)
       - ./user_books:/app/user_books
       - ./users.json:/app/users.json
+      # Shared books accessible to all users
+      - ./Books:/app/Books
     environment:
       # Change this to a secure random string in production
       - JWT_SECRET=${JWT_SECRET:-your-secret-key-change-in-production}

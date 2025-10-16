@@ -3,10 +3,13 @@
   "short_name": "BookReader",
   "description": "Your personal e-book and manga reading application",
   "start_url": "/",
-  "display": "standalone",
-  "background_color": "#667eea",
+  "scope": "/",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "background_color": "#1a1a2e",
   "theme_color": "#667eea",
   "orientation": "any",
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "/icon-192.png",

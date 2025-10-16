@@ -5,20 +5,26 @@ const multer = require('multer');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const session = require('express-session');
+const cors = require('cors');
 const db = require('./db');
 
 const app = express();
 const PORT = 8669;
 const USER_BOOKS_DIR = path.join(__dirname, 'user_books');
+const SHARED_BOOKS_DIR = path.join(__dirname, 'Books');
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
 // Initialize database
 db.initDB();
 
-// Ensure user_books directory exists
+// Ensure user_books and shared books directories exist
 fs.mkdir(USER_BOOKS_DIR, { recursive: true }).catch(console.error);
+fs.mkdir(path.join(SHARED_BOOKS_DIR, 'Novels'), { recursive: true }).catch(console.error);
+fs.mkdir(path.join(SHARED_BOOKS_DIR, 'Manga'), { recursive: true }).catch(console.error);
+fs.mkdir(path.join(SHARED_BOOKS_DIR, 'Textbooks'), { recursive: true }).catch(console.error);
 
 // Middleware
+app.use(cors()); // Enable CORS for all routes
 app.use(express.json());
 app.use(session({
   secret: JWT_SECRET,
@@ -49,10 +55,34 @@ function getUserBooksDir(userId) {
   return path.join(USER_BOOKS_DIR, userId);
 }
 
+// Helper function to calculate directory size
+async function getDirectorySize(dirPath) {
+  let totalSize = 0;
+
+  try {
+    const files = await fs.readdir(dirPath, { withFileTypes: true });
+
+    for (const file of files) {
+      const filePath = path.join(dirPath, file.name);
+      if (file.isDirectory()) {
+        totalSize += await getDirectorySize(filePath);
+      } else {
+        const stats = await fs.stat(filePath);
+        totalSize += stats.size;
+      }
+    }
+  } catch (error) {
+    // Ignore errors for directories that don't exist yet
+  }
+
+  return totalSize;
+}
+
 // Configure multer for user-specific uploads
 const storage = multer.diskStorage({
   destination: async (req, file, cb) => {
-    const userDir = getUserBooksDir(req.userId);
+    const category = req.body.category || 'novels'; // Default to novels
+    const userDir = path.join(getUserBooksDir(req.userId), category);
     await fs.mkdir(userDir, { recursive: true });
     cb(null, userDir);
   },
@@ -63,6 +93,9 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage: storage,
+  limits: {
+    fileSize: 500 * 1024 * 1024 // 500MB per file
+  },
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
     if (['.pdf', '.epub', '.cbz', '.cbr', '.mobi'].includes(ext)) {
@@ -73,9 +106,12 @@ const upload = multer({
   }
 });
 
-// Serve static files - auth checking happens on the frontend
+// Serve static files with caching - auth checking happens on the frontend
 app.use((req, res, next) => {
-  // Just serve all static files - let the frontend handle auth redirects
+  // Add caching for static assets (24 hours)
+  if (req.path.match(/\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$/)) {
+    res.set('Cache-Control', 'public, max-age=86400'); // 24 hours
+  }
   next();
 });
 
@@ -158,34 +194,60 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
   }
 });
 
-// Get list of user's books
+// Get list of user's books (including shared books)
 app.get('/api/books', authenticateToken, async (req, res) => {
   try {
     const userBooksDir = getUserBooksDir(req.userId);
 
-    // Ensure directory exists
+    // Ensure directory and category folders exist
     await fs.mkdir(userBooksDir, { recursive: true });
+    await fs.mkdir(path.join(userBooksDir, 'novels'), { recursive: true });
+    await fs.mkdir(path.join(userBooksDir, 'manga'), { recursive: true });
+    await fs.mkdir(path.join(userBooksDir, 'textbooks'), { recursive: true });
 
-    const files = await fs.readdir(userBooksDir);
+    const categories = ['novels', 'manga', 'textbooks'];
     const supportedExtensions = ['.pdf', '.epub', '.cbz', '.cbr', '.mobi'];
+    const allBooks = [];
 
-    const books = await Promise.all(
-      files.map(async (file) => {
-        const filePath = path.join(userBooksDir, file);
+    // Helper function to recursively scan a directory for books
+    async function scanDirectory(baseDir, category, isShared = false, relativePath = '') {
+      const categoryPath = path.join(baseDir, category, relativePath);
+      let files = [];
+
+      try {
+        files = await fs.readdir(categoryPath);
+      } catch (error) {
+        return []; // Skip if category folder doesn't exist
+      }
+
+      const allBooks = [];
+
+      for (const file of files) {
+        const filePath = path.join(categoryPath, file);
         const stats = await fs.stat(filePath);
         const ext = path.extname(file).toLowerCase();
 
+        // Build the relative path from category root
+        const relativeFilePath = relativePath ? `${relativePath}/${file}` : file;
+        const bookPath = `${category}/${relativeFilePath}`;
+        const bookId = isShared
+          ? Buffer.from(`shared/${bookPath}`).toString('base64')
+          : Buffer.from(bookPath).toString('base64');
+
         if (stats.isFile() && supportedExtensions.includes(ext)) {
-          return {
-            id: Buffer.from(file).toString('base64'),
+          allBooks.push({
+            id: bookId,
             name: file,
             type: ext.substring(1),
-            path: file,
+            path: bookPath,
+            category: category,
             isDirectory: false,
+            isShared: isShared,
             size: stats.size,
             modified: stats.mtime
-          };
+          });
         } else if (stats.isDirectory()) {
+          // Check if directory contains images (manga folder)
           const dirFiles = await fs.readdir(filePath);
           const hasImages = dirFiles.some(f => {
             const imgExt = path.extname(f).toLowerCase();
@@ -193,22 +255,49 @@ app.get('/api/books', authenticateToken, async (req, res) => {
           });
 
           if (hasImages) {
-            return {
-              id: Buffer.from(file).toString('base64'),
+            // This is a manga folder with images
+            allBooks.push({
+              id: bookId,
               name: file,
               type: 'manga',
-              path: file,
+              path: bookPath,
+              category: category,
               isDirectory: true,
+              isShared: isShared,
               size: stats.size,
               modified: stats.mtime
-            };
+            });
+          } else {
+            // This is a regular folder, recursively scan it
+            const subdirBooks = await scanDirectory(baseDir, category, isShared, relativeFilePath);
+            allBooks.push(...subdirBooks);
           }
         }
-        return null;
-      })
-    );
+      }
 
-    res.json(books.filter(book => book !== null));
+      return allBooks;
+    }
+
+    // Scan user's books in each category
+    for (const category of categories) {
+      const userBooks = await scanDirectory(userBooksDir, category, false);
+      allBooks.push(...userBooks);
+    }
+
+    // Scan shared books in each category (capitalized folder names)
+    const sharedCategories = { 'novels': 'Novels', 'manga': 'Manga', 'textbooks': 'Textbooks' };
+    for (const [category, sharedFolder] of Object.entries(sharedCategories)) {
+      const sharedBooks = await scanDirectory(SHARED_BOOKS_DIR, sharedFolder, true);
+      // Map shared folder names to lowercase categories
+      const mappedBooks = sharedBooks.map(book => ({
+        ...book,
+        category: category,
+        path: book.path.replace(sharedFolder, category)
+      }));
+      allBooks.push(...mappedBooks);
+    }
+
+    res.json(allBooks);
   } catch (error) {
     console.error('Error reading books:', error);
     res.status(500).json({ error: 'Failed to read books directory' });
@@ -219,7 +308,19 @@ app.get('/api/books', authenticateToken, async (req, res) => {
 app.get('/api/books/:bookId/pages', authenticateToken, async (req, res) => {
   try {
     const bookName = Buffer.from(req.params.bookId, 'base64').toString('utf-8');
-    const bookPath = path.join(getUserBooksDir(req.userId), bookName);
+
+    // Check if it's a shared book
+    let bookPath;
+    if (bookName.startsWith('shared/')) {
+      const sharedPath = bookName.replace('shared/', '');
+      // Map category to capitalized folder
+      const parts = sharedPath.split('/');
+      const categoryMap = { 'novels': 'Novels', 'manga': 'Manga', 'textbooks': 'Textbooks' };
+      parts[0] = categoryMap[parts[0]] || parts[0];
+      bookPath = path.join(SHARED_BOOKS_DIR, parts.join('/'));
+    } else {
+      bookPath = path.join(getUserBooksDir(req.userId), bookName);
+    }
 
     const stats = await fs.stat(bookPath);
 
@@ -249,14 +350,31 @@ app.get('/api/books/:bookId/pages', authenticateToken, async (req, res) => {
   }
 });
 
-// Serve book files
+// Serve book files with caching
 app.get('/api/books/:bookId/file', authenticateToken, async (req, res) => {
   try {
     const bookName = Buffer.from(req.params.bookId, 'base64').toString('utf-8');
-    const bookPath = path.join(getUserBooksDir(req.userId), bookName);
+
+    // Check if it's a shared book
+    let bookPath;
+    if (bookName.startsWith('shared/')) {
+      const sharedPath = bookName.replace('shared/', '');
+      // Map category to capitalized folder
+      const parts = sharedPath.split('/');
+      const categoryMap = { 'novels': 'Novels', 'manga': 'Manga', 'textbooks': 'Textbooks' };
+      parts[0] = categoryMap[parts[0]] || parts[0];
+      bookPath = path.join(SHARED_BOOKS_DIR, parts.join('/'));
+    } else {
+      bookPath = path.join(getUserBooksDir(req.userId), bookName);
+    }
 
     const stats = await fs.stat(bookPath);
     if (stats.isFile()) {
+      // Add caching headers for PDF files (1 hour cache)
+      res.set({
+        'Cache-Control': 'private, max-age=3600',
+        'ETag': `"${stats.mtime.getTime()}-${stats.size}"`
+      });
       res.sendFile(bookPath);
     } else {
       res.status(400).json({ error: 'Not a file' });
@@ -268,10 +386,25 @@ app.get('/api/books/:bookId/file', authenticateToken, async (req, res) => {
 });
 
 // Serve images from manga folders
-app.get('/api/images/:bookName/:imageName', authenticateToken, async (req, res) => {
+app.get('/api/images/*', authenticateToken, async (req, res) => {
   try {
-    const imagePath = path.join(getUserBooksDir(req.userId), req.params.bookName, req.params.imageName);
-    res.sendFile(imagePath);
+    // Get the full path from the wildcard
+    const imagePath = req.params[0];
+
+    // Check if it's a shared book image
+    let fullPath;
+    if (imagePath.startsWith('shared/')) {
+      const sharedPath = imagePath.replace('shared/', '');
+      // Map category to capitalized folder
+      const parts = sharedPath.split('/');
+      const categoryMap = { 'novels': 'Novels', 'manga': 'Manga', 'textbooks': 'Textbooks' };
+      parts[0] = categoryMap[parts[0]] || parts[0];
+      fullPath = path.join(SHARED_BOOKS_DIR, parts.join('/'));
+    } else {
+      fullPath = path.join(getUserBooksDir(req.userId), imagePath);
+    }
+
+    res.sendFile(fullPath);
   } catch (error) {
     console.error('Error serving image:', error);
     res.status(404).json({ error: 'Image not found' });
@@ -279,21 +412,31 @@ app.get('/api/images/:bookName/:imageName', authenticateToken, async (req, res) 
 });
 
 // Upload books
-app.post('/api/upload', authenticateToken, upload.array('books', 10), (req, res) => {
+app.post('/api/upload', authenticateToken, async (req, res) => {
   try {
-    if (!req.files || req.files.length === 0) {
-      return res.status(400).json({ error: 'No files uploaded' });
-    }
+    // Process upload with multer
+    upload.array('books', 10)(req, res, async (err) => {
+      if (err) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(413).json({ error: 'File too large. Maximum file size is 500MB.' });
+        }
+        return res.status(400).json({ error: err.message });
+      }
 
-    const uploadedFiles = req.files.map(file => ({
-      name: file.originalname,
-      size: file.size
-    }));
+      if (!req.files || req.files.length === 0) {
+        return res.status(400).json({ error: 'No files uploaded' });
+      }
 
-    res.json({
-      success: true,
-      message: `Successfully uploaded ${req.files.length} file(s)`,
-      files: uploadedFiles
+      const uploadedFiles = req.files.map(file => ({
+        name: file.originalname,
+        size: file.size
+      }));
+
+      res.json({
+        success: true,
+        message: `Successfully uploaded ${req.files.length} file(s)`,
+        files: uploadedFiles
+      });
     });
   } catch (error) {
     console.error('Error uploading files:', error);
@@ -306,7 +449,7 @@ const chunkStorage = new Map(); // Store chunks temporarily
 
 app.post('/api/upload-chunk', authenticateToken, multer({ storage: multer.memoryStorage() }).single('chunk'), async (req, res) => {
   try {
-    const { filename, chunkIndex, totalChunks } = req.body;
+    const { filename, chunkIndex, totalChunks, category } = req.body;
     const chunk = req.file.buffer;
 
     if (!filename || chunkIndex === undefined || totalChunks === undefined) {
@@ -314,12 +457,14 @@ app.post('/api/upload-chunk', authenticateToken, multer({ storage: multer.memory
     }
 
     const uploadId = `${req.userId}_${filename}`;
+    const selectedCategory = category || 'novels';
 
     // Initialize chunk storage for this upload
     if (!chunkStorage.has(uploadId)) {
       chunkStorage.set(uploadId, {
         chunks: new Array(parseInt(totalChunks)),
         filename: filename,
+        category: selectedCategory,
         userId: req.userId,
         receivedChunks: 0
       });
@@ -334,11 +479,12 @@ app.post('/api/upload-chunk', authenticateToken, multer({ storage: multer.memory
       // Combine all chunks
       const fileBuffer = Buffer.concat(uploadData.chunks);
 
-      // Save to user's directory
+      // Save to user's category directory
       const userDir = getUserBooksDir(req.userId);
-      await fs.mkdir(userDir, { recursive: true });
+      const categoryDir = path.join(userDir, uploadData.category);
+      await fs.mkdir(categoryDir, { recursive: true });
 
-      const filePath = path.join(userDir, filename);
+      const filePath = path.join(categoryDir, filename);
       await fs.writeFile(filePath, fileBuffer);
 
       // Clean up
@@ -489,6 +635,51 @@ app.post('/api/books/:bookId/rename', authenticateToken, async (req, res) => {
   }
 });
 
+// Change book category
+app.post('/api/books/:bookId/category', authenticateToken, async (req, res) => {
+  try {
+    const bookId = req.params.bookId;
+    const { category } = req.body;
+
+    if (!category || !['novels', 'manga', 'textbooks'].includes(category)) {
+      return res.status(400).json({ error: 'Valid category is required (novels, manga, textbooks)' });
+    }
+
+    const bookPath = Buffer.from(bookId, 'base64').toString('utf-8');
+    const oldPath = path.join(getUserBooksDir(req.userId), bookPath);
+
+    // Extract filename from path
+    const fileName = path.basename(bookPath);
+    const newPath = path.join(getUserBooksDir(req.userId), category, fileName);
+
+    // Check if book exists
+    await fs.stat(oldPath);
+
+    // Check if destination already exists
+    try {
+      await fs.access(newPath);
+      return res.status(400).json({ error: 'A book with this name already exists in the target category' });
+    } catch {
+      // Good, doesn't exist
+    }
+
+    // Ensure target category directory exists
+    await fs.mkdir(path.join(getUserBooksDir(req.userId), category), { recursive: true });
+
+    // Move the file/directory
+    await fs.rename(oldPath, newPath);
+
+    res.json({
+      success: true,
+      message: 'Book category changed successfully',
+      newId: Buffer.from(`${category}/${fileName}`).toString('base64')
+    });
+  } catch (error) {
+    console.error('Error changing category:', error);
+    res.status(500).json({ error: 'Failed to change category' });
+  }
+});
+
 // Set cover page for a book
 app.post('/api/books/:bookId/cover', authenticateToken, async (req, res) => {
   try {
@@ -616,6 +807,43 @@ app.post('/api/users/:userId/books/:bookId/copy', authenticateToken, async (req,
   } catch (error) {
     console.error('Error copying book:', error);
     res.status(500).json({ error: 'Failed to copy book' });
+  }
+});
+
+// Delete a book
+app.delete('/api/books/:bookId', authenticateToken, async (req, res) => {
+  try {
+    const bookId = req.params.bookId;
+    const bookPath = Buffer.from(bookId, 'base64').toString('utf-8');
+    const fullPath = path.join(getUserBooksDir(req.userId), bookPath);
+
+    // Check if book exists
+    const stats = await fs.stat(fullPath);
+
+    // Delete file or directory
+    if (stats.isFile()) {
+      await fs.unlink(fullPath);
+    } else if (stats.isDirectory()) {
+      await fs.rm(fullPath, { recursive: true, force: true });
+    }
+
+    // Clean up cover settings
+    const settingsPath = path.join(USER_BOOKS_DIR, req.userId, '.cover-settings.json');
+    try {
+      const data = await fs.readFile(settingsPath, 'utf8');
+      const settings = JSON.parse(data);
+      if (settings[bookId]) {
+        delete settings[bookId];
+        await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2));
+      }
+    } catch {
+      // No settings file, that's okay
+    }
+
+    res.json({ success: true, message: 'Book deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting book:', error);
+    res.status(500).json({ error: 'Failed to delete book' });
   }
 });
 

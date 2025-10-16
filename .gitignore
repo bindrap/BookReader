@@ -1,7 +1,8 @@
 # Dependencies
 node_modules/
 
-# Legacy Books folder
+# Books folder (exclude contents but keep structure)
+Books/*
 !Books/.gitkeep
 
 # Logs

@@ -45,6 +45,10 @@ let pdfDoc = null;
 let epubBook = null;
 let epubRendition = null;
 let currentBookForOptions = null;
+let currentCategory = 'all';
+let allBooks = [];
+let pdfZoomLevel = 1.5; // Default zoom level for PDFs
+let pdfPageCache = {}; // Cache for rendered PDF pages
 
 // Configure PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -155,6 +159,7 @@ async function init() {
   setupModalHandlers();
   setupBrowseModal();
   setupBookOptionsModal();
+  setupCategoryTabs();
 }
 
 // Load all books from the server
@@ -170,15 +175,24 @@ async function loadLibrary() {
     }
 
     const books = await response.json();
+    allBooks = books; // Store all books for filtering
 
     const container = document.getElementById('books-container');
 
-    if (books.length === 0) {
-      container.innerHTML = '<div class="loading">No books found. Add books to the Books folder!</div>';
+    // Filter books by current category
+    const filteredBooks = currentCategory === 'all'
+      ? books
+      : books.filter(book => book.category === currentCategory);
+
+    if (filteredBooks.length === 0) {
+      const message = books.length === 0
+        ? 'No books found. Add books to the Books folder!'
+        : `No books in the ${currentCategory} category.`;
+      container.innerHTML = `<div class="loading">${message}</div>`;
       return;
     }
 
-    container.innerHTML = books.map(book => {
+    container.innerHTML = filteredBooks.map(book => {
       const icon = book.type === 'manga' ? '📚' : book.type === 'pdf' ? '📄' : '📖';
       const progress = getProgress();
       const bookProgress = progress[book.id];
@@ -187,7 +201,8 @@ async function loadLibrary() {
         : 0;
 
       return `
-        <div class="book-card" data-book-id="${book.id}">
+        <div class="book-card ${book.isShared ? 'shared-book' : ''}" data-book-id="${book.id}">
+          ${book.isShared ? '<div class="shared-badge">📖 Shared</div>' : ''}
           <button class="book-options-btn" data-book-id="${book.id}" title="Book Options">⋮</button>
           <div class="book-cover-container" id="cover-${book.id}">
             <div class="book-icon">${icon}</div>
@@ -203,8 +218,8 @@ async function loadLibrary() {
       `;
     }).join('');
 
-    // Load covers for all books
-    books.forEach(book => loadBookCover(book));
+    // Load covers for all filtered books
+    filteredBooks.forEach(book => loadBookCover(book));
 
     // Add click handlers to book cards
     document.querySelectorAll('.book-card').forEach(card => {
@@ -214,7 +229,7 @@ async function loadLibrary() {
           return;
         }
         const bookId = card.dataset.bookId;
-        const book = books.find(b => b.id === bookId);
+        const book = allBooks.find(b => b.id === bookId);
         openBook(book);
       });
     });
@@ -224,7 +239,7 @@ async function loadLibrary() {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const bookId = btn.dataset.bookId;
-        const book = books.find(b => b.id === bookId);
+        const book = allBooks.find(b => b.id === bookId);
         openBookOptions(book);
       });
     });
@@ -260,42 +275,9 @@ async function openBook(book) {
       epubBook = null;
       epubRendition = null;
     } else if (book.type === 'epub') {
-      // Load EPUB file
-      const token = localStorage.getItem('token');
-      const epubUrl = `/api/books/${book.id}/file`;
-
-      // Initialize EPUB.js
-      epubBook = ePub(epubUrl, {
-        requestHeaders: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-
-      await epubBook.ready;
-
-      const epubViewer = document.getElementById('epub-viewer');
-      epubRendition = epubBook.renderTo(epubViewer, {
-        width: '100%',
-        height: '100%',
-        spread: 'none'
-      });
-
-      await epubRendition.display();
-
-      // Get navigation for page count approximation
-      const navigation = await epubBook.loaded.navigation;
-      currentPages = navigation.toc.map((item, index) => ({
-        pageNumber: index + 1,
-        href: item.href,
-        label: item.label
-      }));
-
-      // If TOC is empty, create synthetic pages
-      if (currentPages.length === 0) {
-        currentPages = [{ pageNumber: 1, href: null }];
-      }
-
-      pdfDoc = null;
+      // EPUB support disabled - recommend PDF conversion
+      alert('EPUB files are not currently supported due to performance and compatibility issues.\n\nPlease convert your EPUB to PDF for the best reading experience.\n\nRecommended tools:\n• Calibre (free)\n• Online converters: cloudconvert.com, zamzar.com');
+      return;
     } else {
       // Get pages for the book (manga/images)
       const response = await fetch(`/api/books/${book.id}/pages`, {
@@ -369,8 +351,9 @@ async function displayPage(pageIndex) {
   } else if (currentBook.type === 'epub') {
     // Display EPUB page
     epubViewer.style.display = 'block';
-    if (epubRendition && page.href) {
-      await epubRendition.display(page.href);
+    if (epubRendition) {
+      // Use href or cfi for navigation
+      await epubRendition.display(page.cfi || page.href);
     }
   } else if (currentBook.isDirectory) {
     // Display image for manga
@@ -391,17 +374,33 @@ async function displayPage(pageIndex) {
   saveProgress(currentBook.id, currentPageIndex + 1, currentPages.length);
 }
 
-// Render a PDF page
+// Render a PDF page with caching
 async function renderPDFPage(pageNumber) {
   if (!pdfDoc) return;
 
   try {
-    const page = await pdfDoc.getPage(pageNumber);
     const canvas = document.getElementById('pdf-canvas');
     const context = canvas.getContext('2d');
 
-    // Calculate scale to fit the viewport
-    const viewport = page.getViewport({ scale: 1.5 });
+    // Create cache key based on page number and zoom level
+    const cacheKey = `${currentBook.id}_${pageNumber}_${pdfZoomLevel}`;
+
+    // Check if we have this page cached
+    if (pdfPageCache[cacheKey]) {
+      // Use cached image data
+      const cachedData = pdfPageCache[cacheKey];
+      canvas.width = cachedData.width;
+      canvas.height = cachedData.height;
+      context.putImageData(cachedData.imageData, 0, 0);
+      canvas.style.display = 'block';
+      return;
+    }
+
+    // Not cached, render the page
+    const page = await pdfDoc.getPage(pageNumber);
+
+    // Calculate scale using current zoom level
+    const viewport = page.getViewport({ scale: pdfZoomLevel });
     canvas.height = viewport.height;
     canvas.width = viewport.width;
 
@@ -415,8 +414,66 @@ async function renderPDFPage(pageNumber) {
     };
 
     await page.render(renderContext).promise;
+
+    // Cache the rendered page (limit cache to 10 pages to save memory)
+    const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+    pdfPageCache[cacheKey] = {
+      imageData: imageData,
+      width: canvas.width,
+      height: canvas.height
+    };
+
+    // Limit cache size to prevent memory issues
+    const cacheKeys = Object.keys(pdfPageCache);
+    if (cacheKeys.length > 10) {
+      // Remove oldest cached page
+      delete pdfPageCache[cacheKeys[0]];
+    }
   } catch (error) {
     console.error('Error rendering PDF page:', error);
+  }
+}
+
+// Zoom functions for PDF
+function zoomIn() {
+  if (currentBook && currentBook.type === 'pdf') {
+    pdfZoomLevel = Math.min(pdfZoomLevel + 0.25, 3.0); // Max 3x zoom
+    // Clear cache for current page at all zoom levels to force re-render
+    const pageNumber = currentPages[currentPageIndex].pageNumber;
+    Object.keys(pdfPageCache).forEach(key => {
+      if (key.startsWith(`${currentBook.id}_${pageNumber}_`)) {
+        delete pdfPageCache[key];
+      }
+    });
+    renderPDFPage(pageNumber);
+  }
+}
+
+function zoomOut() {
+  if (currentBook && currentBook.type === 'pdf') {
+    pdfZoomLevel = Math.max(pdfZoomLevel - 0.25, 0.5); // Min 0.5x zoom
+    // Clear cache for current page at all zoom levels to force re-render
+    const pageNumber = currentPages[currentPageIndex].pageNumber;
+    Object.keys(pdfPageCache).forEach(key => {
+      if (key.startsWith(`${currentBook.id}_${pageNumber}_`)) {
+        delete pdfPageCache[key];
+      }
+    });
+    renderPDFPage(pageNumber);
+  }
+}
+
+function resetZoom() {
+  if (currentBook && currentBook.type === 'pdf') {
+    pdfZoomLevel = 1.5; // Reset to default
+    // Clear cache for current page at all zoom levels to force re-render
+    const pageNumber = currentPages[currentPageIndex].pageNumber;
+    Object.keys(pdfPageCache).forEach(key => {
+      if (key.startsWith(`${currentBook.id}_${pageNumber}_`)) {
+        delete pdfPageCache[key];
+      }
+    });
+    renderPDFPage(pageNumber);
   }
 }
 
@@ -473,6 +530,11 @@ function setupEventListeners() {
   // Fullscreen button
   document.getElementById('fullscreen-btn').addEventListener('click', toggleFullscreen);
 
+  // Zoom buttons for PDF
+  document.getElementById('zoom-in-btn').addEventListener('click', zoomIn);
+  document.getElementById('zoom-out-btn').addEventListener('click', zoomOut);
+  document.getElementById('zoom-reset-btn').addEventListener('click', resetZoom);
+
   // Keyboard navigation
   document.addEventListener('keydown', (e) => {
     if (currentBook) {
@@ -489,6 +551,52 @@ function setupEventListeners() {
       }
     }
   });
+
+  // Touch gesture navigation for swipe-based page turning
+  setupTouchGestures();
+}
+
+// Touch gesture navigation
+function setupTouchGestures() {
+  const pageContent = document.getElementById('page-content');
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let touchEndX = 0;
+  let touchEndY = 0;
+  const minSwipeDistance = 50; // Minimum distance for a swipe
+
+  pageContent.addEventListener('touchstart', (e) => {
+    if (!currentBook) return;
+    touchStartX = e.changedTouches[0].screenX;
+    touchStartY = e.changedTouches[0].screenY;
+  }, { passive: true });
+
+  pageContent.addEventListener('touchend', (e) => {
+    if (!currentBook) return;
+    touchEndX = e.changedTouches[0].screenX;
+    touchEndY = e.changedTouches[0].screenY;
+    handleSwipe();
+  }, { passive: true });
+
+  function handleSwipe() {
+    const deltaX = touchEndX - touchStartX;
+    const deltaY = touchEndY - touchStartY;
+
+    // Check if horizontal swipe is more significant than vertical
+    if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > minSwipeDistance) {
+      if (deltaX > 0) {
+        // Swipe right - go to previous page
+        if (currentPageIndex > 0) {
+          displayPage(currentPageIndex - 1);
+        }
+      } else {
+        // Swipe left - go to next page
+        if (currentPageIndex < currentPages.length - 1) {
+          displayPage(currentPageIndex + 1);
+        }
+      }
+    }
+  }
 }
 
 // Modal Handlers
@@ -619,6 +727,19 @@ async function uploadFiles(files) {
   const uploadStatus = document.getElementById('upload-status');
   const progressFill = document.getElementById('upload-progress-fill');
   const uploadArea = document.getElementById('upload-area');
+  const categorySelect = document.getElementById('category-select');
+
+  // Get selected category
+  const category = categorySelect.value;
+
+  // Validate file sizes (500MB per file max)
+  const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB
+  for (const file of files) {
+    if (file.size > MAX_FILE_SIZE) {
+      alert(`File "${file.name}" exceeds the 500MB size limit. Please upload smaller files.`);
+      return;
+    }
+  }
 
   // Show progress
   uploadArea.style.display = 'none';
@@ -640,6 +761,7 @@ async function uploadFiles(files) {
       if (fileSize < 10 * 1024 * 1024) {
         const formData = new FormData();
         formData.append('books', file);
+        formData.append('category', category);
 
         try {
           const response = await fetch('/api/upload', {
@@ -680,6 +802,7 @@ async function uploadFiles(files) {
             formData.append('filename', file.name);
             formData.append('chunkIndex', chunkIndex);
             formData.append('totalChunks', totalChunks);
+            formData.append('category', category);
 
             const response = await fetch('/api/upload-chunk', {
               method: 'POST',
@@ -986,9 +1109,13 @@ async function openBookOptions(book) {
   const titleEl = document.getElementById('book-options-title');
   const nameInput = document.getElementById('book-name-input');
   const coverPageInput = document.getElementById('cover-page-input');
+  const categorySelect = document.getElementById('book-category-select');
 
   titleEl.textContent = `Options: ${book.name}`;
   nameInput.value = book.name.replace(/\.[^/.]+$/, ''); // Remove extension
+
+  // Set current category
+  categorySelect.value = book.category || 'novels';
 
   // Load current cover page setting
   try {
@@ -1111,12 +1238,93 @@ async function resetCoverPage() {
   }
 }
 
+async function changeCategory() {
+  if (!currentBookForOptions) return;
+
+  const categorySelect = document.getElementById('book-category-select');
+  const newCategory = categorySelect.value;
+
+  if (newCategory === currentBookForOptions.category) {
+    alert('Book is already in this category');
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/books/${currentBookForOptions.id}/category`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ category: newCategory })
+    });
+
+    if (response.status === 401 || response.status === 403) {
+      logout();
+      return;
+    }
+
+    const result = await response.json();
+
+    if (response.ok) {
+      alert(`Book moved to ${newCategory} successfully!`);
+      document.getElementById('book-options-modal').style.display = 'none';
+      await loadLibrary();
+    } else {
+      alert(result.error || 'Failed to change category');
+    }
+  } catch (error) {
+    console.error('Error changing category:', error);
+    alert('Failed to change category. Please try again.');
+  }
+}
+
+async function deleteBook() {
+  if (!currentBookForOptions) return;
+
+  // Prevent deletion of shared books
+  if (currentBookForOptions.isShared) {
+    alert('Cannot delete shared books. Only your personal books can be deleted.');
+    return;
+  }
+
+  const bookName = currentBookForOptions.name;
+  const confirmed = confirm(`Are you sure you want to permanently delete "${bookName}"?\n\nThis action cannot be undone.`);
+
+  if (!confirmed) return;
+
+  try {
+    const response = await fetch(`/api/books/${currentBookForOptions.id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+
+    if (response.status === 401 || response.status === 403) {
+      logout();
+      return;
+    }
+
+    const result = await response.json();
+
+    if (response.ok) {
+      alert('Book deleted successfully!');
+      document.getElementById('book-options-modal').style.display = 'none';
+      currentBookForOptions = null;
+      await loadLibrary();
+    } else {
+      alert(result.error || 'Failed to delete book');
+    }
+  } catch (error) {
+    console.error('Error deleting book:', error);
+    alert('Failed to delete book. Please try again.');
+  }
+}
+
 function setupBookOptionsModal() {
   const modal = document.getElementById('book-options-modal');
   const closeBtn = document.getElementById('close-book-options');
   const renameBtn = document.getElementById('rename-book-btn');
+  const changeCategoryBtn = document.getElementById('change-category-btn');
   const setCoverBtn = document.getElementById('set-cover-btn');
   const resetCoverBtn = document.getElementById('reset-cover-btn');
+  const deleteBtn = document.getElementById('delete-book-btn');
 
   closeBtn.addEventListener('click', () => {
     modal.style.display = 'none';
@@ -1131,8 +1339,10 @@ function setupBookOptionsModal() {
   });
 
   renameBtn.addEventListener('click', renameBook);
+  changeCategoryBtn.addEventListener('click', changeCategory);
   setCoverBtn.addEventListener('click', setCoverPage);
   resetCoverBtn.addEventListener('click', resetCoverPage);
+  deleteBtn.addEventListener('click', deleteBook);
 }
 
 function setupBrowseModal() {
@@ -1183,6 +1393,22 @@ function toggleFullscreen() {
       document.msExitFullscreen();
     }
   }
+}
+
+// Category tabs functionality
+function setupCategoryTabs() {
+  const tabs = document.querySelectorAll('.category-tab');
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      // Update active tab
+      tabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+
+      // Update current category and reload library
+      currentCategory = tab.dataset.category;
+      loadLibrary();
+    });
+  });
 }
 
 // Start the app when DOM is ready
